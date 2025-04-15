@@ -15,7 +15,7 @@ langdetect
 pytesseract
 Pillow
 PyPDF2
-python-magic-bin==0.4.14  # Use this on Heroku instead of 'python-magic'
+python-magic  # Use this on Heroku instead of 'python-magic'
 youtube-transcript-api
 unstructured==0.12.4  # Make sure it's stable and not too new
 
