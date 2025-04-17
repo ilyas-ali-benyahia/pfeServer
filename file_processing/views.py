@@ -5,20 +5,25 @@ import base64
 from django.conf import settings
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
-from langchain.document_loaders import PyPDFLoader, UnstructuredFileLoader
+from langchain.document_loaders import PyPDFLoader
+from langchain_unstructured import UnstructuredLoader
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api._errors import NoTranscriptFound, TranscriptsDisabled
 from youtube_transcript_api.formatters import TextFormatter
 from supabase import create_client, Client
 import tempfile
-import magic
+import mimetypes
 import pytesseract
 from PIL import Image
-
+import dotenv
+dotenv.load_dotenv()
 # Initialize Supabase client
-supabase_url = os.environ.get("SUPABASE_URL1")
-supabase_key = os.environ.get("SUPABASE_KEY1") 
-supabase_bucket = os.environ.get("SUPABASE_BUCKET", "files")
+supabase_url = os.getenv("SUPABASE_URL")
+supabase_key = os.getenv("SUPABASE_KEY") 
+supabase_bucket = os.getenv("SUPABASE_BUCKET", "files")
+if not supabase_url or not supabase_key:
+    raise ValueError("Supabase credentials not found in environment variables")
+
 supabase: Client = create_client(supabase_url, supabase_key)
 
 def txt_to_text(txt_path):
@@ -69,7 +74,7 @@ def image_to_text(image_path):
 def pptx_to_text(pptx_path):
     """Extract text from PowerPoint files"""
     # Using UnstructuredFileLoader
-    loader = UnstructuredFileLoader(pptx_path)
+    loader = UnstructuredLoader(pptx_path)
     documents = loader.load()
     text = "\n\n".join([doc.page_content for doc in documents])
     
@@ -78,7 +83,7 @@ def pptx_to_text(pptx_path):
 def docx_to_text(docx_path):
     """Extract text from Word documents"""
     # Using UnstructuredFileLoader
-    loader = UnstructuredFileLoader(docx_path)
+    loader = UnstructuredLoader(docx_path)
     documents = loader.load()
     text = "\n\n".join([doc.page_content for doc in documents])
     
@@ -186,7 +191,8 @@ def upload_and_extract(request):
                 temp_file_path = temp_file.name
             
             # Get file mimetype
-            mime_type = magic.Magic(mime=True).from_file(temp_file_path)
+           
+            mime_type, _ = mimetypes.guess_type(temp_file_path)
             
             # Upload file to Supabase
             with open(temp_file_path, 'rb') as f:
@@ -259,7 +265,7 @@ def upload_and_extract(request):
                     "storage_path": unique_filename,
                     "file_url": file_url
                 }
-            
+              
             return Response(response_data)
             
         except Exception as e:
