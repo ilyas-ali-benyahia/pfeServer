@@ -1,26 +1,32 @@
-Django==5.1.2
+# Django core
+django==5.1.2
 djangorestframework
 gunicorn
+# Environment configuration
 python-dotenv
+
+# AI integrations
+cohere
+google-generativeai
+langchain
+langchain-google-genai
+
+# Supabase
+supabase
+
+# OCR & image processing
+pytesseract
+pillow
+langdetect
+
+# File & content handling
+python-magic
+youtube-transcript-api
+
+# Production & middleware
 whitenoise
 django-cors-headers
 
-langchain==0.1.13
-langchain-google-genai
-google-generativeai
-cohere
-supabase
-langdetect
+# Optional: PostgreSQL support (uncomment if needed)
+# psycopg2-binary
 
-pytesseract
-Pillow
-PyPDF2
-python-magic
-youtube-transcript-api
-unstructured==0.10.30
-
-tiktoken
-requests
-openai
-filetype
-markdown
