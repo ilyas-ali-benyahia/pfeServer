@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     "summraiz_agent",
     "file_processing",
     "chatbot_app",
+    "corsheaders",
     
 ]
 
