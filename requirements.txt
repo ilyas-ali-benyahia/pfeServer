@@ -9,6 +9,7 @@ python-dotenv
 cohere
 google-generativeai
 langchain
+langchain-unstructured
 langchain-community
 langchain-google-genai
 
