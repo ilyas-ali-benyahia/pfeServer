@@ -151,25 +151,54 @@ class GymChatbot:
             return []
 
     def generate_response(self, query: str, user_id: str) -> str:
-        """
-        Generate a response using Gemini for a specific user.
-        Supports Arabic queries and responses.
-        """
-        try:
-            # Check if user has initialized data
-            if user_id not in self.user_sessions or not self.user_sessions[user_id]:
+    """
+    Generate a response using Gemini for a specific user.
+    Supports Arabic queries and responses.
+    """
+    try:
+        # Check if user has initialized data
+        if user_id not in self.user_sessions or not self.user_sessions[user_id]:
+            # Check if query is in Arabic to respond accordingly
+            if any('\u0600' <= c <= '\u06FF' for c in query):
                 return "لم يتم تهيئة الروبوت المحادث بقاعدة معرفية بعد. يرجى تحميل النص أولاً."
-                
-            context = self.retrieve_relevant_context(query, user_id)
-            if not context:
-                return "لم أتمكن من العثور على معلومات محددة. هل يمكنك إعادة صياغة سؤالك؟"
-            
-            # Rest of the method remains the same...
-            # [Your existing code for generating responses]
-            
-        except Exception as e:
-            print(f"Error generating response: {e}")
-            if any('\u0600' <= c <= '\u06FF' for c in query):  # Check if query is in Arabic
-                return "حدث خطأ أثناء معالجة استفسارك."
             else:
-                return "An error occurred while processing your query."
+                return "The chatbot has not been initialized with a knowledge base yet. Please upload text first."
+            
+        context = self.retrieve_relevant_context(query, user_id)
+        if not context:
+            # Check if query is in Arabic to respond accordingly
+            if any('\u0600' <= c <= '\u06FF' for c in query):
+                return "لم أتمكن من العثور على معلومات محددة. هل يمكنك إعادة صياغة سؤالك؟"
+            else:
+                return "I couldn't find specific information. Can you rephrase your question?"
+        
+        # Join the context
+        context_text = "\n\n".join(context)
+        
+        # Create the prompt with the context and query
+        prompt = f"""As an AI assistant, use the following information to answer the user's query.
+        
+        Information:
+        {context_text}
+        
+        User's query: {query}
+        
+        Your response should be based on the provided information. If you don't know the answer, say so. If the user's query is in Arabic, respond in Arabic."""
+        
+        # Generate a response using Gemini
+        if self.gemini_model:
+            response = self.gemini_model.generate_content(prompt)
+            return response.text
+        else:
+            # Fallback response
+            if any('\u0600' <= c <= '\u06FF' for c in query):
+                return "عذرًا، نواجه مشكلة في توليد الإجابة. يرجى المحاولة مرة أخرى لاحقًا."
+            else:
+                return "Sorry, we're experiencing an issue generating the response. Please try again later."
+            
+    except Exception as e:
+        print(f"Error generating response: {e}")
+        if any('\u0600' <= c <= '\u06FF' for c in query):  # Check if query is in Arabic
+            return "حدث خطأ أثناء معالجة استفسارك."
+        else:
+            return "An error occurred while processing your query."
