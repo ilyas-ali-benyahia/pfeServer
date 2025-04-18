@@ -11,23 +11,64 @@ import jwt  # You'll need to install PyJWT
 load_dotenv()
 
 class GymChatbot:
-    def __init__(self):
-        """
-        Initialize the chatbot without immediately processing content.
-        """
-        self.setup_gemini_api()
-        self.supabase = self.initialize_supabase()
-        self.setup_cohere_api()
-        self.is_initialized = False
-        self.chunk_size = 1200
-        self.chunk_overlap = 100
-        # Store user sessions
-        self.user_sessions = {}
-        # Get JWT secret for token verification
-        self.jwt_secret = os.getenv("SUPABASE_JWT_SECRET")
+    def setup_gemini_api(self):
+    """
+    Set up the Gemini API for text generation.
+    """
+    try:
+        # Configure the Gemini API using your API key from environment variables
+        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+        self.gemini_model = genai.GenerativeModel('gemini-pro')
+    except Exception as e:
+        print(f"Error setting up Gemini API: {e}")
+        self.gemini_model = None
 
-    # Existing methods...
+    def setup_cohere_api(self):
+        """
+        Set up the Cohere API for embeddings.
+        """
+        try:
+            # Initialize the Cohere client for embeddings
+            cohere_api_key = os.getenv("COHERE_API_KEY")
+            self.co = cohere.Client(cohere_api_key)
+        except Exception as e:
+            print(f"Error setting up Cohere API: {e}")
+            self.co = None
+            
+    def initialize_supabase(self):
+        """
+        Initialize the Supabase client.
+        """
+        try:
+            supabase_url = os.getenv("SUPABASE_URL")
+            supabase_key = os.getenv("SUPABASE_KEY")
+            return create_client(supabase_url, supabase_key)
+        except Exception as e:
+            print(f"Error initializing Supabase: {e}")
+            return None
     
+    def embed_text(self, text, input_type="search_query"):
+        """
+        Generate embeddings for text using Cohere API.
+        Works with multilingual text including Arabic.
+        """
+        try:
+            if not self.co:
+                print("Cohere client not initialized")
+                return None
+                
+            # Generate embeddings
+            response = self.co.embed(
+                texts=[text],
+                model="embed-multilingual-v3.0",
+                input_type=input_type
+            )
+            # Return the embedding vector
+            return response.embeddings[0]
+        except Exception as e:
+            print(f"Error generating embedding: {e}")
+            return None
+        
     def get_user_from_token(self, token):
         """
         Extract user ID from a Supabase JWT token.
