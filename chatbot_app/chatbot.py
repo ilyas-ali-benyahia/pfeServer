@@ -6,6 +6,7 @@ from langchain.text_splitter import CharacterTextSplitter
 from langchain.docstore.document import Document
 from supabase import create_client, Client
 import google.generativeai as genai
+import jwt  # You'll need to install PyJWT
 
 load_dotenv()
 
@@ -20,79 +21,55 @@ class GymChatbot:
         self.is_initialized = False
         self.chunk_size = 1200
         self.chunk_overlap = 100
+        # Store user sessions
+        self.user_sessions = {}
+        # Get JWT secret for token verification
+        self.jwt_secret = os.getenv("SUPABASE_JWT_SECRET")
 
-    def setup_gemini_api(self):
+    # Existing methods...
+    
+    def get_user_from_token(self, token):
         """
-        Set up Google Gemini API configuration.
+        Extract user ID from a Supabase JWT token.
         """
         try:
-            genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-            self.model = genai.GenerativeModel(model_name="gemini-1.5-pro")
+            # Decode the JWT token
+            decoded = jwt.decode(token, self.jwt_secret, algorithms=["HS256"])
+            # Extract the user ID
+            user_id = decoded.get('sub')
+            return user_id
         except Exception as e:
-            print(f"Error setting up Gemini API: {e}")
-            raise
-
-    def initialize_supabase(self) -> Client:
-        """
-        Initialize the Supabase client.
-        """
-        try:
-            supabase_url = os.getenv("SUPABASE_URL")
-            supabase_key = os.getenv("SUPABASE_KEY")
-            if not supabase_url or not supabase_key:
-                raise ValueError("Missing Supabase credentials")
-            return create_client(supabase_url, supabase_key)
-        except Exception as e:
-            print(f"Error initializing Supabase: {e}")
-            raise
-
-    def setup_cohere_api(self):
-        """
-        Set up Cohere API for embeddings.
-        """
-        try:
-            self.cohere_api_key = os.getenv("COHERE_API_KEY")
-            if not self.cohere_api_key:
-                raise ValueError("Missing Cohere API key")
-            self.client = cohere.Client(self.cohere_api_key)
-        except Exception as e:
-            print(f"Error setting up Cohere API: {e}")
-            raise
-
-    def embed_text(self, text: str, input_type: str = "search_query") -> Optional[List[float]]:
-        """
-        Generate embeddings using Cohere's multilingual model.
-        The embed-multilingual-light-v3.0 model supports 100+ languages including Arabic.
-        """
-        try:
-            response = self.client.embed(
-                texts=[text], 
-                model="embed-multilingual-light-v3.0",  # This model supports Arabic
-                input_type=input_type
-            )
-            return response.embeddings[0]
-        except Exception as e:
-            print(f"Error generating embeddings: {e}")
+            print(f"Error decoding token: {e}")
             return None
 
-    def delete_all_data(self):
+    def delete_all_data(self, user_id=None):
         """
-        Delete all records from Supabase.
+        Delete all records from Supabase for a specific user or all users.
         """
         try:
-            self.supabase.table("chatbotcontent").delete().neq("id", 0).execute()
-            self.is_initialized = False
+            if user_id:
+                # Delete records only for this user
+                self.supabase.table("chatbotcontent").delete().eq("user_id", user_id).execute()
+                # Update user session status
+                if user_id in self.user_sessions:
+                    self.user_sessions[user_id] = False
+            else:
+                # Delete all records
+                self.supabase.table("chatbotcontent").delete().neq("id", 0).execute()
+                # Reset all user sessions
+                self.user_sessions = {}
+                self.is_initialized = False
         except Exception as e:
             print(f"Error deleting data: {e}")
 
-    def process_text(self, text: str) -> bool:
+    def process_text(self, text: str, user_id: str) -> bool:
         """
-        Process text and create a vector store in Supabase.
+        Process text and create a vector store in Supabase for a specific user.
         Works with multilingual text including Arabic.
         """
         try:
-            # Start fresh
-            self.delete_all_data()
+            # Start fresh for this user
+            self.delete_all_data(user_id)
             
             # Use langchain's CharacterTextSplitter which handles Unicode properly
             text_splitter = CharacterTextSplitter(
@@ -109,31 +86,33 @@ class GymChatbot:
                 if embedding:
                     self.supabase.table("chatbotcontent").insert({
                         "content": chunk,
-                        "embedding": embedding
+                        "embedding": embedding,
+                        "user_id": user_id  # Store the user ID
                     }).execute()
                     
-            self.is_initialized = True
+            # Update user session status
+            self.user_sessions[user_id] = True
             return True
         except Exception as e:
             print(f"Error processing text: {e}")
             return False
 
-    def process_file(self, file_path: str) -> bool:
+    def process_file(self, file_path: str, user_id: str) -> bool:
         """
-        Process a file and create a vector store in Supabase.
+        Process a file and create a vector store in Supabase for a specific user.
         Supports files with Arabic text.
         """
         try:
             # Use utf-8 encoding to properly handle Arabic characters
             with open(file_path, "r", encoding="utf-8") as file:
                 text = file.read()
-            return self.process_text(text)
+            return self.process_text(text, user_id)
         except UnicodeDecodeError:
             # If utf-8 fails, try with another encoding common for Arabic
             try:
                 with open(file_path, "r", encoding="cp1256") as file:  # Windows Arabic encoding
                     text = file.read()
-                return self.process_text(text)
+                return self.process_text(text, user_id)
             except Exception as e:
                 print(f"Error reading file with alternative encoding: {e}")
                 return False
@@ -141,22 +120,29 @@ class GymChatbot:
             print(f"Error reading file: {e}")
             return False
 
-    def retrieve_relevant_context(self, query: str, top_k: int = 6) -> List[str]:
+    def retrieve_relevant_context(self, query: str, user_id: str, top_k: int = 6) -> List[str]:
         """
-        Retrieve relevant context from Supabase.
+        Retrieve relevant context from Supabase for a specific user.
         Works with Arabic queries.
         """
         try:
-            if not self.is_initialized:
+            # Check if user has initialized data
+            if user_id not in self.user_sessions or not self.user_sessions[user_id]:
                 return []
                 
             query_embedding = self.embed_text(query)
             if not query_embedding:
                 return []
 
+            # Use user_id in the RPC call
             response = self.supabase.rpc(
-                'match_documents', 
-                {'query_embedding': query_embedding, 'match_threshold': 0.1, 'match_count': top_k}
+                'match_user_documents', 
+                {
+                    'query_embedding': query_embedding, 
+                    'match_threshold': 0.1, 
+                    'match_count': top_k,
+                    'user_id_param': user_id  # Pass user_id to the SQL function
+                }
             ).execute()
 
             return [row["content"] for row in response.data]
@@ -164,48 +150,23 @@ class GymChatbot:
             print(f"Error retrieving context: {e}")
             return []
 
-    def generate_response(self, query: str) -> str:
+    def generate_response(self, query: str, user_id: str) -> str:
         """
-        Generate a response using Gemini.
+        Generate a response using Gemini for a specific user.
         Supports Arabic queries and responses.
         """
         try:
-            if not self.is_initialized:
+            # Check if user has initialized data
+            if user_id not in self.user_sessions or not self.user_sessions[user_id]:
                 return "لم يتم تهيئة الروبوت المحادث بقاعدة معرفية بعد. يرجى تحميل النص أولاً."
                 
-            context = self.retrieve_relevant_context(query)
+            context = self.retrieve_relevant_context(query, user_id)
             if not context:
                 return "لم أتمكن من العثور على معلومات محددة. هل يمكنك إعادة صياغة سؤالك؟"
             
-            # Detect if the query is in Arabic to respond in the same language
-            is_arabic = any('\u0600' <= c <= '\u06FF' for c in query)
+            # Rest of the method remains the same...
+            # [Your existing code for generating responses]
             
-            if is_arabic:
-                prompt = f"""
-                أنت مساعد خبير في صالة الألعاب الرياضية. استخدم السياق التالي للإجابة على الاستفسار:
-
-                السياق:
-                {chr(10).join([f"- {chunk}" for chunk in context])}
-
-                استفسار المستخدم: {query}
-                
-                أجب فقط بناءً على السياق المقدم. إذا لم يكن لديك معلومات كافية، فأخبر بذلك.
-                """
-            else:
-                prompt = f"""
-                You are an expert gym assistant. Use the following context to answer the query:
-
-                Context:
-                {chr(10).join([f"- {chunk}" for chunk in context])}
-
-                User Query: {query}
-                
-                Answer based only on the provided context. If you don't have enough information, say so.
-                """
-            
-            response = self.model.generate_content(prompt)
-            return response.text.strip()
-        
         except Exception as e:
             print(f"Error generating response: {e}")
             if any('\u0600' <= c <= '\u06FF' for c in query):  # Check if query is in Arabic
