@@ -106,10 +106,12 @@ class GymChatbot:
             self.chat_history.append({"role": "user", "content": query})
             
             # Format chat history for context
-            history_context = "\n".join([f"{'User' if item['role'] == 'user' else 'Assistant'}: {item['content']}" 
-                                        for item in self.chat_history[-6:-1]]) if len(self.chat_history) > 1 else ""
+            history_context = "\n".join(
+                [f"{'User' if item['role'] == 'user' else 'Assistant'}: {item['content']}" 
+                 for item in self.chat_history[-6:-1]]
+            ) if len(self.chat_history) > 1 else ""
             
-           if not self.is_initialized or not self.knowledge_base:
+            if not self.is_initialized or not self.knowledge_base:
                 # General knowledge mode (no user-uploaded content)
                 if is_arabic:
                     prompt = f"""
@@ -195,6 +197,7 @@ class GymChatbot:
                     4. Transparency: If a query is ambiguous, request clarification instead of guessing.
                     5. Organization: Structure answers for easy reading (subheadings, bullet points, etc.).
                     """
+            
             response = self.model.generate_content(prompt)
             answer = response.text.strip()
             
