@@ -10,6 +10,8 @@ import logging
 import langdetect
 import random
 import urllib.parse
+import requests
+from bs4 import BeautifulSoup
 
 # Set up logging to help with debugging
 logging.basicConfig(level=logging.INFO)
@@ -18,7 +20,7 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
-# Define base URL for knowledge linking - this was missing in the original code
+# Define base URL for knowledge linking
 BASE_KNOWLEDGE_URL = "https://knowledge.example.com"
 
 def detect_language(text):
@@ -41,17 +43,76 @@ def get_color_palette():
         "technology": "#2196F3", # Blue (for tech, innovation)
     }
 
-def create_valid_url(text, base_url):
-    """Create a valid URL from text content."""
-    # Remove special characters and create URL-friendly slug
-    slug = re.sub(r'[^\w\s-]', '', text.lower()).strip()
-    slug = re.sub(r'[\s-]+', '-', slug)
-    
-    # Ensure the slug is URL safe
-    safe_slug = urllib.parse.quote(slug)
-    
-    # Return the full URL path
-    return f"{base_url}/{safe_slug}"
+def search_related_url(text, language='english'):
+    """
+    Search for a URL related to the text content using Google Search.
+    Returns a relevant URL or falls back to a generated URL if search fails.
+    """
+    try:
+        # Remove quotes and other special characters
+        clean_text = re.sub(r'["\'<>\[\]()]', '', text).strip()
+        
+        # Use the gemini model to generate a relevant URL
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        
+        if language == 'arabic':
+            prompt = f"""
+            أنا بحاجة إلى عنوان URL حقيقي وموثوق به متعلق بـ "{clean_text}".
+            يجب أن يكون عنوان URL حقيقيًا (مثل موقع ويكيبيديا أو موقع رسمي أو منظمة معروفة).
+            أعطني فقط عنوان URL واحدًا كاملًا بدون أي توضيحات أو تعليقات إضافية.
+            مثال على الإخراج: https://ar.wikipedia.org/wiki/مثال
+            """
+        else:
+            prompt = f"""
+            I need a real, authoritative URL related to "{clean_text}".
+            The URL should be real (like a Wikipedia page, official website, or well-known organization).
+            Give me just a single complete URL with no additional explanations or comments.
+            Example output: https://en.wikipedia.org/wiki/Example
+            """
+        
+        generation_config = {
+            "temperature": 0.2,
+            "top_p": 0.95,
+            "top_k": 20,
+            "max_output_tokens": 256
+        }
+        
+        response = model.generate_content(
+            prompt,
+            generation_config=generation_config
+        )
+        
+        # Extract URL from response
+        url_match = re.search(r'(https?://[^\s"\'<>]+)', response.text)
+        if url_match:
+            url = url_match.group(1)
+            
+            # Validate the URL with a HEAD request
+            try:
+                # Use a timeout to avoid hanging
+                head_response = requests.head(url, timeout=3)
+                if head_response.status_code < 400:  # URL exists
+                    logger.info(f"Found valid URL for '{clean_text}': {url}")
+                    return url
+            except requests.RequestException:
+                logger.warning(f"URL validation failed for '{url}'")
+        
+        # Fallback: Create a path using the base knowledge URL
+        slug = re.sub(r'[^\w\s-]', '', clean_text.lower()).strip()
+        slug = re.sub(r'[\s-]+', '-', slug)
+        safe_slug = urllib.parse.quote(slug)
+        fallback_url = f"{BASE_KNOWLEDGE_URL}/{safe_slug}"
+        
+        logger.info(f"Using fallback URL for '{clean_text}': {fallback_url}")
+        return fallback_url
+        
+    except Exception as e:
+        logger.error(f"Error in search_related_url: {str(e)}")
+        # Fallback: Create a path using the base knowledge URL
+        slug = re.sub(r'[^\w\s-]', '', text.lower()).strip()
+        slug = re.sub(r'[\s-]+', '-', slug)
+        safe_slug = urllib.parse.quote(slug)
+        return f"{BASE_KNOWLEDGE_URL}/{safe_slug}"
 
 # Improved diagram tool function with working links and language support
 def diagram_tool(input_text, include_colors=True, include_clicks=True, base_url=BASE_KNOWLEDGE_URL):
@@ -90,14 +151,13 @@ def diagram_tool(input_text, include_colors=True, include_clicks=True, base_url=
             D --> A
             end
             
-            click A "https://knowledge.example.com/path" _blank
-            click B "https://knowledge.example.com/path" _blank
-            click D "https://knowledge.example.com/path" _blank
+            click A "https://ar.wikipedia.org/wiki/مثال" _blank
+            click B "https://ar.wikipedia.org/wiki/مثال_آخر" _blank
+            click D "https://ar.wikipedia.org/wiki/مثال_ثالث" _blank
             
             ✅ **ملاحظات هامة:**
-           - يجب أن تستخدم جميع الروابط **عناوين URL مطلقة** وتنتهي بـ `_blank`.
-           - تأكد من أن URL يعمل بشكل صحيح.
-           - تأكد من أشكال العقد وتنسيقها بشكل صحيح.
+           - يجب أن تستخدم جميع الروابط **عناوين URL حقيقية** وتنتهي بـ `_blank`.
+           - تأكد من أن العقد والروابط في المخطط تعكس محتوى النص المعطى.
             """
         else:
             styling_instructions = f"""
@@ -123,16 +183,15 @@ def diagram_tool(input_text, include_colors=True, include_clicks=True, base_url=
             D --> A
             end
             
-            click A "https://knowledge.example.com/first-item" _blank
-            click B "https://knowledge.example.com/subitem" _blank
-            click D "https://knowledge.example.com/subitem" _blank
+            click A "https://en.wikipedia.org/wiki/Example" _blank
+            click B "https://en.wikipedia.org/wiki/Another_example" _blank
+            click D "https://en.wikipedia.org/wiki/Third_example" _blank
             
             ```
             
             ✅ **Important Notes:**
-            - All links should use **absolute URLs** and end with `_blank`.
-            - Ensure **proper node shapes and formatting**.
-            - Make sure the URLs correctly relate to the node content.
+            - All links should use **real, content-relevant URLs** and end with `_blank`.
+            - Make sure the nodes and connections in the diagram reflect the given text content.
             """
 
         # Generate instructions based on language
@@ -144,9 +203,10 @@ def diagram_tool(input_text, include_colors=True, include_clicks=True, base_url=
             
             {styling_instructions}
             
-            🔹 **ملاحظات:** تأكد من أن المخطط يتبع **بالضبط** البنية الموضحة في التعليمات.
-            ❌ **لا تضف أي تفسيرات، تعليقات، أو تعديلات إضافية** - فقط **كود Mermaid النقي**.
-            🔗 **الروابط:** تأكد من أن كل رابط يرتبط منطقيًا بمحتوى العقدة التي يشير إليها.
+            🔹 **ملاحظات:** 
+            - تأكد من أن المخطط يتبع **بالضبط** البنية الموضحة في التعليمات.
+            - استخرج العناصر الرئيسية والعلاقات من النص المعطى.
+            - **لا تضف أي تفسيرات، تعليقات، أو تعديلات إضافية** - فقط **كود Mermaid النقي**.
             """
         else:
             prompt = f"""
@@ -156,9 +216,10 @@ def diagram_tool(input_text, include_colors=True, include_clicks=True, base_url=
             
             {styling_instructions}
             
-            🔹 **Notes:** Make sure the diagram follows **exactly** the structure shown in the instructions.
-            ❌ **Do not include any prefixes, suffixes, or explanations** - just **pure Mermaid code**.
-            🔗 **Links:** Ensure each link logically relates to the content of the node it references.
+            🔹 **Notes:** 
+            - Make sure the diagram follows **exactly** the structure shown in the instructions.
+            - Extract key entities and relationships from the given text.
+            - **Do not include any prefixes, suffixes, or explanations** - just **pure Mermaid code**.
             """
 
         # Set generation configuration based on language
@@ -199,18 +260,17 @@ def diagram_tool(input_text, include_colors=True, include_clicks=True, base_url=
             # Extract all node IDs from the diagram
             nodes = re.findall(r'([A-Za-z0-9_]+)(?:\[|\(|\{)([^\]}\)]+)(?:\]|\)|\})', diagram_code)
             
-            # Check if click lines already exist
-            existing_clicks = set(re.findall(r'click\s+([A-Za-z0-9_]+)', diagram_code))
-            
             # Remove any existing click lines to replace them with correct ones
             diagram_code = re.sub(r'click\s+[A-Za-z0-9_]+\s+"[^"]+"\s+_blank', '', diagram_code)
             
             # Add click lines for all nodes
             click_lines = []
             for node_id, node_text in nodes:
-                # Clean text for URL slug and create a proper URL
+                # Clean text for search
                 clean_text = re.sub(r'["<>]', '', node_text).strip()
-                url = create_valid_url(clean_text, base_url)
+                
+                # Find a related URL for this content
+                url = search_related_url(clean_text, language)
                 
                 # Add click line with appropriate URL
                 click_lines.append(f'click {node_id} "{url}" _blank')
@@ -278,18 +338,18 @@ def extract_diagram_from_output(output_text):
                 diagram_code = diagram_code.replace(class_def, '')
             diagram_code = '\n'.join(class_defs) + '\n' + diagram_code.strip()
         
-        # Fix any links
+        # Remove any existing click lines
         click_lines = re.findall(r'(click [^\n]+)', diagram_code)
         for line in click_lines:
             diagram_code = diagram_code.replace(line, '')
         
-        # Add proper click lines at the end
+        # Add proper click lines at the end with content-related URLs
         node_lines = []
         nodes = re.findall(r'([A-Za-z0-9_]+)(?:\[|\(|\{)([^\]}\)]+)(?:\]|\)|\})', diagram_code)
         for node_id, node_text in nodes:
-            # Clean text for URL slug and create a proper URL
+            # Clean text and search for related URL
             clean_text = re.sub(r'["<>]', '', node_text).strip()
-            url = create_valid_url(clean_text, BASE_KNOWLEDGE_URL)
+            url = search_related_url(clean_text, language)
             node_lines.append(f'click {node_id} "{url}" _blank')
         
         if node_lines:
