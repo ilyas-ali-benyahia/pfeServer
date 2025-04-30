@@ -163,3 +163,6 @@ CORS_ALLOWED_ORIGINS = [
      "https://study-via.vercel.app"
      
 ]
+import os
+
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
