@@ -2,10 +2,12 @@
 from django.contrib import admin
 from django.urls import include, path
 from django.http import JsonResponse
+from django.http import HttpResponse
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    
+    path('', lambda request: HttpResponse("Welcome to studyvia")),
+
     path('agent/', include('flashcards_agent.urls')),
     path('agent/', include('quizes_agent.urls')),
     path('agent/', include('diagram_agent.urls')),
