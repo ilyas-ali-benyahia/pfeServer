@@ -38,7 +38,8 @@ def flashcard_tool(input_text):
         س: سؤال
         ج: جواب
         
-        قم بإنشاء 5 بطاقات تعليمية على الأقل. لا تقم بتضمين أي نص أو أفكار أو شروحات إضافية.
+        قم بإنشاء بطاقات تعليمية  . 
+        لا تقم بتضمين أي نص أو أفكار أو شروحات إضافية.
         """
     else:  # Default to English
         prompt = """
@@ -50,7 +51,8 @@ def flashcard_tool(input_text):
         Q: question
         A: answer
         
-        Generate at least 5 flashcards. Do not include any additional text, thoughts, or explanations.
+        Generate  flashcards. Do not include any additional text
+          thoughts, or explanations.
         """
     
     response = model.generate_content(prompt.format(input_text=input_text))
@@ -76,52 +78,111 @@ agent = initialize_agent(
 
 # Create a function to extract flashcards from agent output
 def extract_flashcards_from_output(output_text):
+    """
+    Extract flashcards from agent output with improved reliability.
+    Works with both English and Arabic outputs.
+    """
     import re
     
-    # Check if output contains Arabic question/answer format
-    if 'س:' in output_text and 'ج:' in output_text:
-        # This pattern captures the Arabic Q&A pairs from the Observation sections
+    all_flashcards = []
+    
+    # First try to extract from observation sections
+    if 'Observation:' in output_text:
         observation_sections = re.findall(r'Observation: (.*?)(?=Thought:|$)', output_text, re.DOTALL)
         
-        all_flashcards = []
         for section in observation_sections:
-            # Extract Arabic Q&A pairs from each observation section
-            qa_pairs = re.findall(r'س: (.*?)\nج: (.*?)(?=\s*س:|$)', section, re.DOTALL)
-            for question, answer in qa_pairs:
+            # Try Arabic format
+            ar_qa_pairs = re.findall(r'س: (.*?)\nج: (.*?)(?=\s*س:|$)', section, re.DOTALL)
+            for question, answer in ar_qa_pairs:
                 all_flashcards.append({
                     "question": question.strip(),
                     "answer": answer.strip()
                 })
-                
-        # If no matches found in observation sections, try the entire text
-        if not all_flashcards:
-            qa_pairs = re.findall(r'س: (.*?)\nج: (.*?)(?=\s*س:|$)', output_text, re.DOTALL)
-            for question, answer in qa_pairs:
-                all_flashcards.append({
-                    "question": question.strip(),
-                    "answer": answer.strip()
-                })
-    else:
-        # This pattern captures the English Q&A pairs from the Observation sections
-        observation_sections = re.findall(r'Observation: (.*?)(?=Thought:|$)', output_text, re.DOTALL)
-        
-        all_flashcards = []
-        for section in observation_sections:
-            # Extract English Q&A pairs from each observation section
-            qa_pairs = re.findall(r'Q: (.*?)\nA: (.*?)(?=\s*Q:|$)', section, re.DOTALL)
-            for question, answer in qa_pairs:
-                all_flashcards.append({
-                    "question": question.strip(),
-                    "answer": answer.strip()
-                })
-                
-        # If no matches found in observation sections, try the entire text
-        if not all_flashcards:
-            qa_pairs = re.findall(r'Q: (.*?)\nA: (.*?)(?=\s*Q:|$)', output_text, re.DOTALL)
-            for question, answer in qa_pairs:
+            
+            # Try English format
+            en_qa_pairs = re.findall(r'Q: (.*?)\nA: (.*?)(?=\s*Q:|$)', section, re.DOTALL)
+            for question, answer in en_qa_pairs:
                 all_flashcards.append({
                     "question": question.strip(),
                     "answer": answer.strip()
                 })
     
+    # If no flashcards found in observation sections, try the full text
+    if not all_flashcards:
+        # Try Arabic format
+        ar_qa_pairs = re.findall(r'س: (.*?)\nج: (.*?)(?=\s*س:|$)', output_text, re.DOTALL)
+        for question, answer in ar_qa_pairs:
+            all_flashcards.append({
+                "question": question.strip(),
+                "answer": answer.strip()
+            })
+        
+        # Try English format
+        en_qa_pairs = re.findall(r'Q: (.*?)\nA: (.*?)(?=\s*Q:|$)', output_text, re.DOTALL)
+        for question, answer in en_qa_pairs:
+            all_flashcards.append({
+                "question": question.strip(),
+                "answer": answer.strip()
+            })
+    
+    # Additional capture for output formats with indentation or different patterns
+    if not all_flashcards:
+        # Try capturing with potential spaces/indentation
+        en_qa_pairs = re.findall(r'[Qq](?:uestion)?:?\s*(.*?)\s*\n[Aa](?:nswer)?:?\s*(.*?)(?=\s*\n\s*[Qq](?:uestion)?:?|\s*$)', 
+                               output_text, re.DOTALL)
+        for question, answer in en_qa_pairs:
+            all_flashcards.append({
+                "question": question.strip(),
+                "answer": answer.strip()
+            })
+        
+        # Try capturing with potential spaces/indentation for Arabic
+        ar_qa_pairs = re.findall(r'[سؤال](?:ؤال)?:?\s*(.*?)\s*\n[جواب](?:واب)?:?\s*(.*?)(?=\s*\n\s*[سؤال](?:ؤال)?:?|\s*$)', 
+                                output_text, re.DOTALL)
+        for question, answer in ar_qa_pairs:
+            all_flashcards.append({
+                "question": question.strip(),
+                "answer": answer.strip()
+            })
+    
     return all_flashcards
+
+
+def create_direct_flashcards(text):
+    """
+    Function to directly create flashcards by calling the flashcard_tool
+    without going through the agent. This provides a reliable fallback.
+    """
+    try:
+        # Import needed at function level to avoid circular imports
+        from .utils import flashcard_tool, detect_language
+        
+        # Get language
+        language = detect_language(text)
+        
+        # Call the tool directly
+        tool_output = flashcard_tool(text)
+        
+        # Extract flashcards
+        all_flashcards = []
+        import re
+        
+        if language == 'arabic':
+            qa_pairs = re.findall(r'س: (.*?)\nج: (.*?)(?=\s*س:|$)', tool_output, re.DOTALL)
+            for question, answer in qa_pairs:
+                all_flashcards.append({
+                    "question": question.strip(),
+                    "answer": answer.strip()
+                })
+        else:
+            qa_pairs = re.findall(r'Q: (.*?)\nA: (.*?)(?=\s*Q:|$)', tool_output, re.DOTALL)
+            for question, answer in qa_pairs:
+                all_flashcards.append({
+                    "question": question.strip(),
+                    "answer": answer.strip()
+                })
+                
+        return all_flashcards
+    except Exception as e:
+        print(f"Direct flashcard creation error: {str(e)}")
+        return []
