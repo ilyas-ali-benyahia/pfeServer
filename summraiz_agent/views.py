@@ -1,5 +1,3 @@
-# BACKEND FIX - views.py
-
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from .utils import agent, extract_summary_from_output, detect_language, summary_tool
@@ -7,11 +5,21 @@ import io
 import sys
 import re
 
+def clean_asterisks(text):
+    """Remove unwanted asterisks from text while preserving content."""
+    # Replace multiple asterisks with nothing
+    cleaned = re.sub(r'\*{2,}', '', text)
+    # Remove single asterisks (but keep content between them)
+    cleaned = re.sub(r'\*([^*]*)\*', r'\1', cleaned)
+    # Remove any remaining single asterisks
+    cleaned = cleaned.replace('*', '')
+    return cleaned.strip()
+
 @api_view(["POST"])
 def generate_summary(request):
     """Generates a summary and key points from the provided text.
     
-    Fixed to ensure consistent naming and proper error handling.
+    Fixed to ensure consistent naming and proper formatting (removing asterisks).
     """
     text = request.data.get("text", "")
     
@@ -83,9 +91,23 @@ def generate_summary(request):
         # Make sure we have at least some content
         if not results["summary"]:
             results["summary"] = "Summary generation failed. Please try again with different content."
+        else:
+            # Clean up unwanted asterisks from summary
+            results["summary"] = clean_asterisks(results["summary"])
         
         if not results["key_points"]:
             results["key_points"] = ["No key points identified."]
+        else:
+            # Clean up unwanted asterisks from each key point
+            results["key_points"] = [clean_asterisks(point) for point in results["key_points"]]
+        
+        # Clean other fields that might contain asterisks
+        for key in results:
+            if isinstance(results[key], str):
+                results[key] = clean_asterisks(results[key])
+            elif isinstance(results[key], list):
+                results[key] = [clean_asterisks(item) if isinstance(item, str) else item 
+                               for item in results[key]]
         
         return Response({
             "summary": results["summary"],
