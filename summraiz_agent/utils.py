@@ -39,6 +39,7 @@ def detect_language(text):
 def summary_tool(input_text, detailed=True):
     """
     Enhanced summary tool that extracts more comprehensive information from texts.
+    Modified to avoid unwanted asterisks in the output.
     
     Args:
         input_text (str): The text to analyze
@@ -86,6 +87,7 @@ def summary_tool(input_text, detailed=True):
         {"مصطلحات رئيسية: [قائمة بالمصطلحات أو المفاهيم التقنية الرئيسية الموجودة في النص مع تعريفات موجزة]" if detailed else ""}
         
         التزم بهذا التنسيق بالضبط. قم بتضمين {min_points}-{max_points} نقاط رئيسية حسب طول النص.
+        هام: لا تستخدم علامات النجمة (*) في الملخص أو النقاط الرئيسية. قدم المعلومات مباشرة دون أي تنسيق خاص.
         """
     else:  # Default to English
         prompt = f"""
@@ -116,11 +118,11 @@ def summary_tool(input_text, detailed=True):
         {"Key Terms: [list of key technical terms or concepts in the text with brief definitions]" if detailed else ""}
         
         Strictly follow this format. Include {min_points}-{max_points} key points depending on the length of the text.
+        IMPORTANT: Do not use asterisks (*) or any markdown formatting in the summary or key points. Present the information directly without any special formatting.
         """
     
     response = model.generate_content(prompt)
     return response.text
-
 # Define tool for LangChain agent
 summary_tool_obj = Tool(
     name="Enhanced Text Analyzer",
