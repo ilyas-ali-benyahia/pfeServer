@@ -11,8 +11,8 @@ python-magic==0.4.27
 
 langchain==0.1.14
 langchain-community
-langchain-google-genai==0.0.6
-langchain-unstructured[all-docs]==0.1.6
+langchain-google-genai
+langchain-unstructured[all-docs]
 
 cohere==4.39
 google-generativeai==0.3.2
