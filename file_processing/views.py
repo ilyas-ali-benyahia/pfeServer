@@ -89,6 +89,23 @@ def docx_to_text(docx_path):
     
     return text
 
+def sanitize_filename(filename):
+    """
+    Sanitize filename to be compatible with Supabase storage.
+    Removes spaces, brackets, and other special characters.
+    
+    Args:
+        filename (str): Original filename
+        
+    Returns:
+        str: Sanitized filename
+    """
+    # Replace spaces and brackets with underscores
+    sanitized = re.sub(r'[\s\[\]\(\)\{\}]', '_', filename)
+    # Remove other special characters
+    sanitized = re.sub(r'[^\w\-\.]', '', sanitized)
+    return sanitized
+
 @api_view(["POST"])
 def upload_and_extract(request):
     """
@@ -180,9 +197,14 @@ def upload_and_extract(request):
     # 📂 Process file if provided
     if file:
         try:
-            # Generate a unique filename to avoid collisions - REMOVED 'uploads/' prefix
-            unique_filename = f"{uuid.uuid4()}-{file.name}"
+            # Get file extension
             file_ext = file.name.split(".")[-1].lower()
+            
+            # Sanitize original filename to be compatible with Supabase
+            clean_original_name = sanitize_filename(file.name)
+            
+            # Generate a unique filename to avoid collisions
+            unique_filename = f"{uuid.uuid4()}-{clean_original_name}"
             
             # Create a temporary file to process locally
             with tempfile.NamedTemporaryFile(delete=False, suffix=f".{file_ext}") as temp_file:
@@ -191,7 +213,6 @@ def upload_and_extract(request):
                 temp_file_path = temp_file.name
             
             # Get file mimetype
-           
             mime_type, _ = mimetypes.guess_type(temp_file_path)
             
             # Upload file to Supabase
