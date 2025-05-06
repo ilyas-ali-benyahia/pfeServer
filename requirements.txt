@@ -10,7 +10,7 @@ python-magic
 langchain
 langchain-community
 langchain-google-genai
-langchain-unstructured[all-docs]
+langchain-unstructured
 cohere
 google-generativeai
 beautifulsoup4
