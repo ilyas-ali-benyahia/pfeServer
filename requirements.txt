@@ -1,31 +1,39 @@
-# Django core
+# Django and DRF
 django==5.1.2
 djangorestframework
+
+# WSGI server
 gunicorn
-# Environment configuration
+
+# Environment management
 python-dotenv
-# AI integrations
-cohere
-google-generativeai
-langchain
-langchain-unstructured[all-docs]  # Add the [all-docs] extra
-langchain-community
-langchain-google-genai
-beautifulsoup4
+
 # Supabase
 supabase
-# OCR & image processing
-pytesseract
-pillow
-langdetect
-# File & content handling
+
+# File and document handling
+PyPDF2
+python-docx
+python-pptx
 python-magic
-python-docx  # Add this for DOCX support
-python-pptx  # Add this for PPTX support
-PyPDF2       # Add this for better PDF support
+
+# AI & language models
+langchain
+langchain-unstructured[all-docs]
+langchain-community
+langchain-google-genai
+cohere
+google-generativeai
+beautifulsoup4
+
+# OCR & image processing
+pillow
+pytesseract
+langdetect
+
+# YouTube transcript
 youtube-transcript-api
-# Production & middleware
+
+# Static files & CORS
 whitenoise
 django-cors-headers
-# Optional: PostgreSQL support (uncomment if needed)
-# psycopg2-binary
