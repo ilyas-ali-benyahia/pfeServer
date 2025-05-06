@@ -1,12 +1,20 @@
 services:
   - type: web
-    name: backend 
+    name: backend
     env: python
-    buildCommand: |
-      apt-get update && apt-get install -y \
-        tesseract-ocr \
-        libmagic1 \
-        libxml2 \
-        libxslt1-dev
-      pip install -r requirements.txt
-    startCommand: gunicorn backend.wsgi:application
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn backend.wsgi:application --bind 0.0.0.0:$PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.11
+    packages:
+      - tesseract-ocr
+      - libreoffice
+      - poppler-utils
+      - libmagic1
+      - antiword
+      - unrtf
+      - imagemagick
+      - libxml2-dev
+      - libxslt1-dev
+      - zlib1g-dev
