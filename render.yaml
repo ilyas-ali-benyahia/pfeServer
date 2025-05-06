@@ -1,7 +1,12 @@
 services:
   - type: web
-    name: backend
+    name: backend 
     env: python
-    buildCommand: ./build.sh && pip install -r requirements.txt
-    startCommand: "gunicorn backend.wsgi:application"
-    
+    buildCommand: |
+      apt-get update && apt-get install -y \
+        tesseract-ocr \
+        libmagic1 \
+        libxml2 \
+        libxslt1-dev
+      pip install -r requirements.txt
+    startCommand: gunicorn backend.wsgi:application
