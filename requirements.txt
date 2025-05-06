@@ -1,28 +1,34 @@
 django==5.1.2
-djangorestframework==3.14.0
-gunicorn==21.2.0
-python-dotenv==1.0.0
-supabase==2.0.2
+djangorestframework
+gunicorn
+python-dotenv
+supabase
 
-PyPDF2==3.0.1
-python-docx==1.1.0
-python-pptx==0.6.21
-python-magic==0.4.27
+PyPDF2
+python-docx
+python-pptx
 
-langchain==0.1.14
+python-magic
+
+
+langchain
+
 langchain-community
 langchain-google-genai
 langchain-unstructured[all-docs]
 
-cohere==4.39
-google-generativeai==0.3.2
-beautifulsoup4==4.12.3
+cohere
+oogle-generativeai
+beautifulsoup4
 
-pillow==10.2.0
-pytesseract==0.3.10
-langdetect==1.0.9
 
-youtube-transcript-api==0.6.1
+pillow
 
-whitenoise==6.6.0
+pytesseract
+
+langdetect
+
+youtube-transcript-api
+
+whitenoise
 django-cors-headers
