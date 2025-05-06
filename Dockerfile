@@ -1,39 +1,29 @@
-# Use an official slim Python image
-FROM python:3.11-slim
+# استخدم صورة رسمية من Python
+FROM python:3.10-slim
 
-# Set environment variables
-ENV PYTHONDONTWRITEBYTECODE 1
-ENV PYTHONUNBUFFERED 1
-
-# Install system dependencies
-RUN apt-get update && \
-    apt-get install -y \
-    tesseract-ocr \
+# تثبيت الأدوات الأساسية لدعم ملفات Office و OCR
+RUN apt-get update && apt-get install -y \
+    build-essential \
     libmagic1 \
-    poppler-utils \
     libglib2.0-0 \
     libsm6 \
-    libxrender1 \
     libxext6 \
-    && rm -rf /var/lib/apt/lists/*
+    libxrender-dev \
+    tesseract-ocr \
+    poppler-utils \
+    libreoffice \
+    curl \
+    && apt-get clean
 
-# Set work directory
+# إعداد مجلد التطبيق
 WORKDIR /app
 
-# Install Python dependencies
-COPY requirements.txt /app/
+# نسخ ملفات المشروع إلى الحاوية
+COPY . .
+
+# تثبيت المكتبات من requirements.txt
 RUN pip install --upgrade pip
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install -r requirements.txt
 
-# Copy project files
-COPY . /app/
-
-# Collect static files
-RUN python manage.py collectstatic --noinput
-
-# Expose port
-EXPOSE 8000
-
-# Start the server
-CMD ["gunicorn", "backend.wsgi:application", "--bind", "0.0.0.0:8000"]
-
+# إعداد الأوامر التي تشغل التطبيق
+CMD ["gunicorn", "backend.wsgi:application", "--bind", "0.0.0.0:10000"]
