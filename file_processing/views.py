@@ -16,11 +16,13 @@ import mimetypes
 import pytesseract
 from PIL import Image
 import dotenv
+import requests
 dotenv.load_dotenv()
 # Initialize Supabase client
 supabase_url = os.getenv("SUPABASE_URL")
 supabase_key = os.getenv("SUPABASE_KEY") 
 supabase_bucket = os.getenv("SUPABASE_BUCKET", "files")
+OCR_SPACE_API_KEY = os.getenv("OCR_SPACE_API_KEY", "helloworld")
 if not supabase_url or not supabase_key:
     raise ValueError("Supabase credentials not found in environment variables")
 
@@ -52,25 +54,35 @@ def txt_to_text(txt_path):
 # Function to extract text from images using OCR
 def image_to_text(image_path):
     """
-    Extract text from an image using Tesseract OCR.
-    
+    Extract text from an image using OCR.Space API.
     Args:
         image_path (str): Path to the image file
-        
     Returns:
         str: Extracted text from the image
     """
     try:
-        # Open the image using PIL
-        img = Image.open(image_path)
+        with open(image_path, 'rb') as f:
+            response = requests.post(
+                'https://api.ocr.space/parse/image',
+                files={'filename': f},
+                data={
+                    'apikey': OCR_SPACE_API_KEY,
+                    'language': 'eng',  # or 'ara' for Arabic
+                    'isOverlayRequired': False
+                },
+            )
+        result = response.json()
         
-        # Use pytesseract to do OCR on the image
-        text = pytesseract.image_to_string(img)
+        if result.get("IsErroredOnProcessing"):
+            raise Exception(result.get("ErrorMessage", "Unknown OCR error"))
         
-        return text
+        parsed_results = result.get("ParsedResults")
+        if parsed_results and len(parsed_results) > 0:
+            return parsed_results[0].get("ParsedText", "")
+        else:
+            return ""
     except Exception as e:
-        raise Exception(f"OCR processing failed: {str(e)}")
-   
+        raise Exception(f"OCR.Space API processing failed: {str(e)}")
 def pptx_to_text(pptx_path):
     """Extract text from PowerPoint files"""
     # Using UnstructuredFileLoader
