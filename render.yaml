@@ -7,6 +7,21 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.11
+      -key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false  
+      - key: SUPABASE_BUCKET
+        value: files
+      - key: OCR_SPACE_API_KEY
+        sync: false
+    buildCommand: |
+      apt-get update && apt-get install -y \
+        tesseract-ocr \
+        libreoffice \
+        poppler-utils \
+        python3-dev \
+        && pip install -r requirements.txt
     packages:
       - tesseract-ocr
       - libreoffice
