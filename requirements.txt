@@ -1,6 +1,7 @@
 django==5.1.2
 djangorestframework
 gunicorn
+requests
 python-dotenv
 supabase
 PyPDF2
