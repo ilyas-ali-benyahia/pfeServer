@@ -420,6 +420,24 @@ def upload_and_extract(request):
                     },
                     status=500,
                 )
+            
+            # Return the extracted text
+            logger.info(f"Successfully extracted text with {len(extracted_text)} characters")
+            return Response({
+                "extracted_text": extracted_text,
+                "file_url": file_url
+            })
+            
+        except Exception as e:
+            logger.error(f"File processing error: {str(e)}")
+            return Response({"error": f"File processing error: {str(e)}"}, status=500)
+    
+    # If neither URL nor file provided
+    logger.warning("No URL or file provided in request")
+    return Response(
+        {"error": "Please provide either a YouTube URL or a file to extract text from."},
+        status=400,
+    )
 
 @api_view(["GET"])
 def health_check(request):
