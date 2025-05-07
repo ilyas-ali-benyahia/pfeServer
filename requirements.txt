@@ -8,6 +8,9 @@ PyPDF2
 python-docx
 python-pptx
 python-magic
+unstructured
+unstructured[docx]
+unstructured[pptx]
 langchain
 langchain-community
 langchain-google-genai
@@ -21,3 +24,12 @@ langdetect
 youtube-transcript-api
 whitenoise
 django-cors-headers
+
+
+
+
+
+
+
+
+
