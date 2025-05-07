@@ -40,6 +40,96 @@ if not supabase_url or not supabase_key:
 logger.info(f"Initializing Supabase client with URL: {supabase_url[:10]}... and bucket: {supabase_bucket}")
 supabase: Client = create_client(supabase_url, supabase_key)
 
+def extract_youtube_id(url):
+    """
+    Extract YouTube video ID from various URL formats.
+    Much more comprehensive pattern matching.
+    
+    Args:
+        url (str): YouTube URL
+        
+    Returns:
+        str: YouTube video ID or None if not found
+    """
+    # Comprehensive pattern to match various YouTube URL formats
+    patterns = [
+        r'(?:v=|\/)([0-9A-Za-z_-]{11})(?:&|\/|$)',  # Standard URLs
+        r'(?:youtu\.be\/)([0-9A-Za-z_-]{11})(?:\?|&|\/|$)',  # Shortened URLs
+        r'(?:embed\/)([0-9A-Za-z_-]{11})(?:\?|&|\/|$)',  # Embed URLs
+        r'(?:shorts\/)([0-9A-Za-z_-]{11})(?:\?|&|\/|$)',  # YouTube Shorts
+        r'^([0-9A-Za-z_-]{11})$'  # Just the ID itself
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match:
+            return match.group(1)
+    
+    return None
+
+def get_available_transcript_languages(video_id):
+    """
+    Get a list of available transcript languages for a video.
+    
+    Args:
+        video_id (str): YouTube video ID
+        
+    Returns:
+        list: List of available language codes and whether they're auto-generated
+    """
+    try:
+        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+        available_languages = []
+        
+        for transcript in transcript_list:
+            available_languages.append({
+                "language_code": transcript.language_code,
+                "language": transcript.language,
+                "is_generated": transcript.is_generated,
+                "is_translatable": transcript.is_translatable
+            })
+        
+        return available_languages
+    except Exception as e:
+        logger.error(f"Error getting available transcript languages: {str(e)}")
+        return []
+
+def get_youtube_transcript_with_pytube(url):
+    """
+    Alternative method using pytube to get transcript.
+    
+    Args:
+        url (str): YouTube URL
+        
+    Returns:
+        str: Extracted transcript or None if not found
+    """
+    try:
+        # This requires installing pytube: pip install pytube
+        from pytube import YouTube
+        
+        logger.info(f"Attempting to get transcript with pytube from: {url}")
+        yt = YouTube(url)
+        captions = yt.captions
+        
+        # Try to get English captions first, then fall back to any available caption
+        caption = captions.get('en', captions.get('a.en', next(iter(captions.values())) if captions else None))
+        
+        if caption:
+            transcript = caption.generate_srt_captions()
+            # Clean up SRT formatting to get plain text
+            cleaned_text = re.sub(r'\d+\n\d+:\d+:\d+,\d+ --> \d+:\d+:\d+,\d+\n', '', transcript)
+            cleaned_text = re.sub(r'\n\n', ' ', cleaned_text)
+            logger.info(f"Successfully extracted transcript with pytube: {len(cleaned_text)} characters")
+            return cleaned_text
+        
+        logger.warning("No captions found with pytube")
+        return None
+    
+    except Exception as e:
+        logger.error(f"pytube transcript extraction failed: {str(e)}")
+        return None
+
 def txt_to_text(txt_path):
     """
     Read text from a plain text file.
@@ -235,95 +325,140 @@ def upload_and_extract(request):
     # 🎬 Process YouTube URL if provided
     if url:
         logger.info(f"Processing YouTube URL: {url}")
-        # Improved regex to extract YouTube video ID from various URL formats
-        regex = r"(?:v=|\/)([0-9A-Za-z_-]{11})(?:&|\/|$)"
-        video_id_match = re.search(regex, url)
+        # Use improved video ID extraction
+        video_id = extract_youtube_id(url)
         
-        if not video_id_match:
+        if not video_id:
             logger.warning(f"Invalid YouTube URL: {url}")
             return Response({"error": "Invalid YouTube URL"}, status=400)
         
-        video_id = video_id_match.group(1)
         logger.info(f"Extracted YouTube video ID: {video_id}")
         
+        # Try multiple methods with proper error handling
         try:
-            # Try multiple language options - including Arabic
-            languages_to_try = ['en', 'ar', 'es', 'fr', 'de']
-            transcript = None
-            
-            # First try specific languages
-            for lang in languages_to_try:
-                try:
-                    logger.info(f"Trying to get transcript in language: {lang}")
-                    transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=[lang])
-                    logger.info(f"Found transcript in language: {lang}")
-                    break
-                except NoTranscriptFound:
-                    logger.info(f"No transcript found in language: {lang}")
-                    continue
-                except Exception as lang_e:
-                    logger.warning(f"Error getting transcript in {lang}: {str(lang_e)}")
-                    continue
-            
-            # If specific languages failed, try to get any available transcript
-            if not transcript:
-                logger.info("Trying to get list of available transcripts")
-                try:
-                    # Get list of available transcripts
+            # Method 1: Standard YouTube Transcript API approach
+            try:
+                transcript = None
+                languages_to_try = ['en', 'ar', 'es', 'fr', 'de']
+                
+                # Try specific languages
+                for lang in languages_to_try:
+                    try:
+                        logger.info(f"Trying to get transcript in language: {lang}")
+                        transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=[lang])
+                        logger.info(f"Found transcript in language: {lang}")
+                        break
+                    except NoTranscriptFound:
+                        continue
+                    except Exception as lang_e:
+                        logger.warning(f"Error getting transcript in {lang}: {str(lang_e)}")
+                        continue
+                
+                # If specific languages failed, try any available transcript
+                if not transcript:
+                    logger.info("Trying to get list of available transcripts")
                     transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
                     
-                    # First try to find an auto-generated transcript
+                    # First try auto-generated transcript
                     for t in transcript_list:
                         if t.is_generated:
                             logger.info(f"Found auto-generated transcript in {t.language_code}")
                             transcript = t.fetch()
                             break
                     
-                    # If no auto-generated transcript found, get the first available one
+                    # If no auto-generated, get first available
                     if not transcript and len(list(transcript_list)) > 0:
                         first_transcript = list(transcript_list)[0]
                         logger.info(f"Using first available transcript in {first_transcript.language_code}")
                         transcript = first_transcript.fetch()
-                except Exception as list_e:
-                    logger.error(f"Error getting transcript list: {str(list_e)}")
+                
+                if transcript:
+                    # Extract text from transcript
+                    text = " ".join([item["text"] for item in transcript])
+                    logger.info(f"Successfully extracted transcript with {len(text)} characters")
+                    return Response({"extracted_text": text})
+            except Exception as yt_api_error:
+                logger.warning(f"Standard YouTube transcript method failed: {str(yt_api_error)}")
+                # Continue to fallback methods
             
-            # If we still don't have a transcript, raise an error
-            if not transcript:
-                logger.error(f"No transcript found for video ID: {video_id}")
-                raise NoTranscriptFound(video_id, languages_to_try)
-            
-            # Extract the text from the transcript
-            text = " ".join([item["text"] for item in transcript])
-            logger.info(f"Successfully extracted transcript with {len(text)} characters")
-            
-            return Response({
-                "extracted_text": text
-            })
-        except TranscriptsDisabled:
-            logger.error(f"Transcripts are disabled for video ID: {video_id}")
-            return Response({"error": "Transcripts are disabled for this YouTube video"}, status=400)
-        except Exception as e:
-            # Try to get available languages for better error message
+            # Method 2: Try with pytube if installed
             try:
-                logger.info("Trying to get available language options for error message")
-                transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
-                available_language_codes = []
+                logger.info("Attempting pytube fallback method")
+                transcript_text = get_youtube_transcript_with_pytube(url)
+                if transcript_text:
+                    return Response({"extracted_text": transcript_text})
+            except ImportError:
+                logger.warning("pytube not installed, skipping this method")
+            except Exception as pytube_error:
+                logger.warning(f"pytube method failed: {str(pytube_error)}")
+            
+            # Method 3: Simple request to get transcript data via HTTP
+            try:
+                logger.info("Attempting direct HTTP request for transcript data")
+                # This is a simplified approach and may not work for all videos
+                response = requests.get(f"https://www.youtube.com/watch?v={video_id}")
                 
-                for t in transcript_list:
-                    if t.is_generated:
-                        available_language_codes.append(f"{t.language_code} (auto-generated)")
-                    else:
-                        available_language_codes.append(t.language_code)
-                
-                language_options = ", ".join(available_language_codes)
-                logger.error(f"YouTube transcript extraction failed with available languages: {language_options}")
+                if response.status_code == 200:
+                    # Look for transcript data in the page source
+                    # This is a simplified approach and may break with YouTube updates
+                    transcript_pattern = r'"captionTracks":\[(.*?)\]'
+                    matches = re.search(transcript_pattern, response.text)
+                    
+                    if matches:
+                        caption_data = matches.group(1)
+                        # Extract the baseUrl from the caption data
+                        base_url_pattern = r'"baseUrl":"(.*?)"'
+                        base_url_match = re.search(base_url_pattern, caption_data)
+                        
+                        if base_url_match:
+                            transcript_url = base_url_match.group(1).replace('\\u0026', '&')
+                            transcript_response = requests.get(transcript_url)
+                            
+                            if transcript_response.status_code == 200:
+                                # Parse the XML/transcript data
+                                # This is simplified and may need more robust parsing
+                                text_pattern = r'<text.*?>(.*?)</text>'
+                                text_matches = re.findall(text_pattern, transcript_response.text)
+                                
+                                if text_matches:
+                                    # Join all text segments
+                                    text = " ".join(text_matches)
+                                    # Decode HTML entities
+                                    import html
+                                    text = html.unescape(text)
+                                    logger.info(f"Successfully extracted transcript via HTTP request")
+                                    return Response({"extracted_text": text})
+            except Exception as http_error:
+                logger.warning(f"HTTP request method failed: {str(http_error)}")
+            
+            # If all methods fail, return error with available languages if possible
+            try:
+                languages = get_available_transcript_languages(video_id)
+                if languages:
+                    language_options = ", ".join([f"{lang['language_code']} ({lang['language']})" for lang in languages])
+                    logger.error(f"All transcript methods failed. Available languages: {language_options}")
+                    return Response({
+                        "error": f"YouTube transcript extraction failed. Available languages: {language_options}",
+                        "suggestion": "You may need to specify one of these languages in your request."
+                    }, status=400)
+                else:
+                    # If we can't even get language list
+                    logger.error("All transcript methods failed and couldn't fetch language list")
+                    return Response({
+                        "error": "YouTube transcript extraction failed using all available methods.",
+                        "suggestion": "This video might not have transcripts available or they might be disabled."
+                    }, status=400)
+            except Exception:
+                # If we can't even get language list
+                logger.error("All transcript methods failed and couldn't fetch language list")
                 return Response({
-                    "error": f"YouTube transcript extraction failed. Available languages: {language_options}",
-                    "suggestion": "You may need to specify one of these languages in your request."
+                    "error": "YouTube transcript extraction failed using all available methods.",
+                    "suggestion": "This video might not have transcripts available or they might be disabled."
                 }, status=400)
-            except Exception as list_e:
-                logger.error(f"YouTube transcript extraction failed: {str(e)}, Error getting languages: {str(list_e)}")
-                return Response({"error": f"YouTube transcript extraction failed: {str(e)}"}, status=500)
+        
+        except Exception as e:
+            logger.error(f"YouTube processing error: {str(e)}")
+            return Response({"error": f"YouTube transcript extraction failed: {str(e)}"}, status=500)
     
     # 📂 Process file if provided
     if file:
