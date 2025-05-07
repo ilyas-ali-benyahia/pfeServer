@@ -7,6 +7,7 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from langchain.document_loaders import PyPDFLoader
 from langchain_unstructured import UnstructuredLoader
+from langchain_community.document_loaders import UnstructuredPowerPointLoader, UnstructuredWordDocumentLoader
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api._errors import NoTranscriptFound, TranscriptsDisabled
 from youtube_transcript_api.formatters import TextFormatter
@@ -84,20 +85,14 @@ def image_to_text(image_path):
     except Exception as e:
         raise Exception(f"OCR.Space API processing failed: {str(e)}")
 def pptx_to_text(pptx_path):
-    """Extract text from PowerPoint files"""
-    # Using UnstructuredFileLoader
-    loader = UnstructuredLoader(pptx_path)
+    loader = UnstructuredPowerPointLoader(pptx_path)
     documents = loader.load()
-    text = "\n\n".join([doc.page_content for doc in documents])
-    
-    return text
+    return "\n\n".join([doc.page_content for doc in documents])
 
 def docx_to_text(docx_path):
-    """Extract text from Word documents"""
-    # Using UnstructuredFileLoader
-    loader = UnstructuredLoader(docx_path)
+    loader = UnstructuredWordDocumentLoader(docx_path)
     documents = loader.load()
-    text = "\n\n".join([doc.page_content for doc in documents])
+    return "\n\n".join([doc.page_content for doc in documents])
     
     return text
 
