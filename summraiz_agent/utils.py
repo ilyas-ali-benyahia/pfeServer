@@ -45,7 +45,7 @@ def summary_tool(input_text, detailed=True):
         input_text (str): The text to analyze
         detailed (bool): Whether to include additional analysis sections
     """
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    model = genai.GenerativeModel("gemini-2.0-flash")
     
     # Detect language
     language = detect_language(input_text)
@@ -135,7 +135,7 @@ summary_tool_obj = Tool(
 )
 
 # Initialize LangChain agent with Gemini
-llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0.7)
+llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0.7)
 memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
 agent = initialize_agent(
     tools=[summary_tool_obj],
