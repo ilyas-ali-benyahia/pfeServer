@@ -53,7 +53,7 @@ def search_related_url(text, language='english'):
         clean_text = re.sub(r'["\'<>\[\]()]', '', text).strip()
         
         # Use the gemini model to generate a relevant URL
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        model = genai.GenerativeModel("gemini-2.0-flash")
         
         if language == 'arabic':
             prompt = f"""
@@ -121,7 +121,7 @@ def diagram_tool(input_text, include_colors=True, include_clicks=True, base_url=
         language = detect_language(input_text)
         logger.info(f"Diagram tool detected language: {language}")
         
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        model = genai.GenerativeModel("gemini-2.0-flash")
         
         # Generate a color palette
         color_palette = get_color_palette()
