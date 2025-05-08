@@ -40,312 +40,6 @@ if not supabase_url or not supabase_key:
 logger.info(f"Initializing Supabase client with URL: {supabase_url[:10]}... and bucket: {supabase_bucket}")
 supabase: Client = create_client(supabase_url, supabase_key)
 
-def extract_youtube_id(url):
-    """
-    Extract YouTube video ID from various URL formats.
-    Much more comprehensive approach with multiple methods.
-    
-    Args:
-        url (str): YouTube URL
-        
-    Returns:
-        str: YouTube video ID or None if not found
-    """
-    # Try parsing URL with urlparse first (most reliable)
-    parsed_url = urlparse(url)
-    
-    # Method 1: youtube.com/watch?v=VIDEO_ID format
-    if 'youtube.com' in parsed_url.netloc and '/watch' in parsed_url.path:
-        query_params = parse_qs(parsed_url.query)
-        if 'v' in query_params:
-            return query_params['v'][0]
-    
-    # Method 2: youtu.be/VIDEO_ID format
-    if 'youtu.be' in parsed_url.netloc:
-        path = parsed_url.path.strip('/')
-        if path and len(path) == 11:
-            return path
-    
-    # Method 3: youtube.com/embed/VIDEO_ID format
-    if 'youtube.com' in parsed_url.netloc and '/embed/' in parsed_url.path:
-        path_parts = parsed_url.path.split('/')
-        if len(path_parts) > 2:
-            return path_parts[2]
-    
-    # Method 4: youtube.com/shorts/VIDEO_ID format
-    if 'youtube.com' in parsed_url.netloc and '/shorts/' in parsed_url.path:
-        path_parts = parsed_url.path.split('/')
-        if len(path_parts) > 2:
-            return path_parts[2]
-    
-    # Method 5: Raw regex patterns as fallback
-    patterns = [
-        r'(?:v=|\/)([0-9A-Za-z_-]{11})(?:&|\/|$)',  # Standard URLs
-        r'(?:youtu\.be\/)([0-9A-Za-z_-]{11})(?:\?|&|\/|$)',  # Shortened URLs
-        r'(?:embed\/)([0-9A-Za-z_-]{11})(?:\?|&|\/|$)',  # Embed URLs
-        r'(?:shorts\/)([0-9A-Za-z_-]{11})(?:\?|&|\/|$)',  # YouTube Shorts
-        r'^([0-9A-Za-z_-]{11})$'  # Just the ID itself
-    ]
-    
-    for pattern in patterns:
-        match = re.search(pattern, url)
-        if match:
-            return match.group(1)
-    
-    # Method 6: Check if the URL itself is just the ID
-    if re.match(r'^[0-9A-Za-z_-]{11}$', url):
-        return url
-    
-    return None
-
-def get_youtube_transcript_with_api(video_id):
-    """
-    Try to extract transcript using the YouTube Transcript API.
-    This is the primary method.
-    
-    Args:
-        video_id (str): YouTube video ID
-        
-    Returns:
-        str: Extracted transcript or None if failed
-    """
-    logger.info(f"Attempting to extract transcript with YouTube API for video: {video_id}")
-    
-    try:
-        # Languages to try in order of preference
-        languages_to_try = ['en', 'en-US', 'en-GB', 'ar', 'es', 'fr', 'de', 'ru', 'zh', 'zh-CN', 'ja', 'ko', 'pt', 'it']
-        transcript = None
-        
-        # First try specific languages
-        for lang in languages_to_try:
-            try:
-                logger.info(f"Trying to get transcript in language: {lang}")
-                transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=[lang])
-                logger.info(f"Found transcript in language: {lang}")
-                break
-            except NoTranscriptFound:
-                continue
-            except Exception as lang_e:
-                logger.warning(f"Error getting transcript in {lang}: {str(lang_e)}")
-                continue
-        
-        # If specific languages failed, try any available transcript
-        if not transcript:
-            logger.info("Trying to get list of available transcripts")
-            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
-            
-            # First try auto-generated transcript
-            for t in transcript_list:
-                if t.is_generated:
-                    logger.info(f"Found auto-generated transcript in {t.language_code}")
-                    transcript = t.fetch()
-                    break
-            
-            # If no auto-generated, get first available
-            if not transcript and len(list(transcript_list)) > 0:
-                first_transcript = list(transcript_list)[0]
-                logger.info(f"Using first available transcript in {first_transcript.language_code}")
-                transcript = first_transcript.fetch()
-        
-        if transcript:
-            # Extract text from transcript
-            text = " ".join([item["text"] for item in transcript])
-            logger.info(f"Successfully extracted transcript with {len(text)} characters")
-            return text
-        
-        return None
-        
-    except Exception as e:
-        logger.warning(f"YouTube transcript API failed: {str(e)}")
-        return None
-
-def get_youtube_transcript_with_requests(video_id):
-    """
-    Try to extract transcript using direct requests to YouTube.
-    This is a fallback method.
-    
-    Args:
-        video_id (str): YouTube video ID
-        
-    Returns:
-        str: Extracted transcript or None if failed
-    """
-    logger.info(f"Attempting to extract transcript with HTTP requests for video: {video_id}")
-    
-    try:
-        # Try a more direct approach with YouTube's timedtext API
-        # First get video info to find available captions
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        }
-        
-        # Request the watch page to get potential caption data
-        response = requests.get(
-            f"https://www.youtube.com/watch?v={video_id}",
-            headers=headers,
-            timeout=10
-        )
-        
-        if response.status_code != 200:
-            logger.warning(f"Failed to get YouTube watch page, status code: {response.status_code}")
-            return None
-        
-        # Look for caption data in various formats
-        # Method 1: Try to find captionTracks in the page source
-        caption_regex = r'"captionTracks":\s*(\[.*?\])'
-        caption_match = re.search(caption_regex, response.text)
-        
-        if caption_match:
-            try:
-                caption_data = json.loads(caption_match.group(1))
-                
-                # Find the English or first available caption
-                caption_url = None
-                for caption in caption_data:
-                    if caption.get('languageCode', '').startswith('en'):
-                        caption_url = caption.get('baseUrl')
-                        break
-                
-                # If no English caption found, take the first one
-                if not caption_url and caption_data:
-                    caption_url = caption_data[0].get('baseUrl')
-                
-                if caption_url:
-                    caption_url = caption_url.replace('\\u0026', '&')
-                    logger.info(f"Found caption URL: {caption_url[:50]}...")
-                    
-                    # Request the caption file
-                    caption_response = requests.get(caption_url, headers=headers, timeout=10)
-                    
-                    if caption_response.status_code == 200:
-                        # Extract text from XML
-                        text_matches = re.findall(r'<text[^>]*>(.*?)</text>', caption_response.text)
-                        if text_matches:
-                            # Process and join all text segments
-                            import html
-                            cleaned_text = [html.unescape(t) for t in text_matches]
-                            full_text = " ".join(cleaned_text)
-                            logger.info(f"Successfully extracted {len(full_text)} characters from caption XML")
-                            return full_text
-            except Exception as json_error:
-                logger.warning(f"Error parsing caption data: {str(json_error)}")
-        
-        # Method 2: Try scraping player response JSON
-        player_response_regex = r'var ytInitialPlayerResponse = ({.*?});'
-        player_match = re.search(player_response_regex, response.text)
-        
-        if player_match:
-            try:
-                player_data = json.loads(player_match.group(1))
-                caption_tracks = player_data.get('captions', {}).get('playerCaptionsTracklistRenderer', {}).get('captionTracks', [])
-                
-                if caption_tracks:
-                    # Find the English or first available caption
-                    caption_url = None
-                    for track in caption_tracks:
-                        if track.get('languageCode', '').startswith('en'):
-                            caption_url = track.get('baseUrl')
-                            break
-                    
-                    # If no English caption found, take the first one
-                    if not caption_url and caption_tracks:
-                        caption_url = caption_tracks[0].get('baseUrl')
-                    
-                    if caption_url:
-                        # Request the caption file
-                        caption_response = requests.get(caption_url, headers=headers, timeout=10)
-                        
-                        if caption_response.status_code == 200:
-                            # Extract text from XML
-                            text_matches = re.findall(r'<text[^>]*>(.*?)</text>', caption_response.text)
-                            if text_matches:
-                                # Process and join all text segments
-                                import html
-                                cleaned_text = [html.unescape(t) for t in text_matches]
-                                full_text = " ".join(cleaned_text)
-                                logger.info(f"Successfully extracted {len(full_text)} characters from caption XML")
-                                return full_text
-            except Exception as json_error:
-                logger.warning(f"Error parsing player response: {str(json_error)}")
-        
-        return None
-        
-    except Exception as e:
-        logger.warning(f"HTTP request method failed: {str(e)}")
-        return None
-
-def get_youtube_transcript_with_external_service(video_id):
-    """
-    Try to extract transcript using external services as a last resort.
-    This is a backup method.
-    
-    Args:
-        video_id (str): YouTube video ID
-        
-    Returns:
-        str: Extracted transcript or None if failed
-    """
-    logger.info(f"Attempting to extract transcript with external service for video: {video_id}")
-    
-    try:
-        # Try using a third-party service like SaveSubs (this is an example - you may need API access)
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Referer': 'https://savesubs.com/',
-            'Accept': 'application/json'
-        }
-        
-        # This is a placeholder for a potential external API call
-        response = requests.post(
-            'https://savesubs.com/api/extract',
-            json={'url': f'https://www.youtube.com/watch?v={video_id}', 'lang': 'en'},
-            headers=headers,
-            timeout=15
-        )
-        
-        if response.status_code == 200:
-            try:
-                data = response.json()
-                if data.get('success') and data.get('transcript'):
-                    logger.info(f"Successfully extracted transcript from external service")
-                    return data['transcript']
-            except Exception as json_error:
-                logger.warning(f"Error parsing external service response: {str(json_error)}")
-        
-        # You can add more external services here as additional fallbacks
-        
-        return None
-        
-    except Exception as e:
-        logger.warning(f"External service method failed: {str(e)}")
-        return None
-
-def get_available_transcript_languages(video_id):
-    """
-    Get a list of available transcript languages for a video.
-    
-    Args:
-        video_id (str): YouTube video ID
-        
-    Returns:
-        list: List of available language codes and whether they're auto-generated
-    """
-    try:
-        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
-        available_languages = []
-        
-        for transcript in transcript_list:
-            available_languages.append({
-                "language_code": transcript.language_code,
-                "language": transcript.language,
-                "is_generated": transcript.is_generated,
-                "is_translatable": transcript.is_translatable
-            })
-        
-        return available_languages
-    except Exception as e:
-        logger.error(f"Error getting available transcript languages: {str(e)}")
-        return []
 
 def txt_to_text(txt_path):
     """
@@ -541,81 +235,74 @@ def upload_and_extract(request):
     
     # 🎬 Process YouTube URL if provided
     if url:
-        logger.info(f"Processing YouTube URL: {url}")
-        # Use improved video ID extraction
-        video_id = extract_youtube_id(url)
+        # Improved regex to extract YouTube video ID from various URL formats
+        regex = r"(?:v=|\/)([0-9A-Za-z_-]{11})(?:&|\/|$)"
+        video_id_match = re.search(regex, url)
         
-        if not video_id:
-            logger.warning(f"Invalid YouTube URL: {url}")
-            return Response({"error": "Invalid YouTube URL or video ID. Please provide a valid YouTube video URL."}, status=400)
+        if not video_id_match:
+            return Response({"error": "Invalid YouTube URL"}, status=400)
         
-        logger.info(f"Extracted YouTube video ID: {video_id}")
+        video_id = video_id_match.group(1)
         
-        # Try multiple methods with proper error handling
-        extracted_text = None
-        error_messages = []
-        
-        # Method 1: Try using the YouTube Transcript API (most reliable)
         try:
-            extracted_text = get_youtube_transcript_with_api(video_id)
-            if extracted_text:
-                logger.info("Successfully extracted text with YouTube Transcript API")
-                return Response({"extracted_text": extracted_text})
+            # Try multiple language options - including Arabic
+            languages_to_try = ['en', 'ar', 'es', 'fr', 'de']
+            transcript = None
+            
+            # First try specific languages
+            for lang in languages_to_try:
+                try:
+                    transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=[lang])
+                    break
+                except NoTranscriptFound:
+                    continue
+            
+            # If specific languages failed, try to get any available transcript
+            if not transcript:
+                # Get list of available transcripts
+                transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+                
+                # First try to find an auto-generated transcript
+                for t in transcript_list:
+                    if t.is_generated:
+                        transcript = t.fetch()
+                        break
+                
+                # If no auto-generated transcript found, get the first available one
+                if not transcript and len(list(transcript_list)) > 0:
+                    transcript = list(transcript_list)[0].fetch()
+            
+            # If we still don't have a transcript, raise an error
+            if not transcript:
+                raise NoTranscriptFound(video_id, languages_to_try)
+            
+            # Extract the text from the transcript
+            text = " ".join([item["text"] for item in transcript])
+            
+            return Response({
+                "extracted_text": text
+            })
+        except TranscriptsDisabled:
+            return Response({"error": "Transcripts are disabled for this YouTube video"}, status=400)
         except Exception as e:
-            error_msg = f"YouTube Transcript API failed: {str(e)}"
-            logger.warning(error_msg)
-            error_messages.append(error_msg)
-        
-        # Method 2: Try using direct HTTP requests
-        try:
-            extracted_text = get_youtube_transcript_with_requests(video_id)
-            if extracted_text:
-                logger.info("Successfully extracted text with direct HTTP requests")
-                return Response({"extracted_text": extracted_text})
-        except Exception as e:
-            error_msg = f"Direct HTTP request method failed: {str(e)}"
-            logger.warning(error_msg)
-            error_messages.append(error_msg)
-        
-        # Method 3: Try using external service (last resort)
-        try:
-            extracted_text = get_youtube_transcript_with_external_service(video_id)
-            if extracted_text:
-                logger.info("Successfully extracted text with external service")
-                return Response({"extracted_text": extracted_text})
-        except Exception as e:
-            error_msg = f"External service method failed: {str(e)}"
-            logger.warning(error_msg)
-            error_messages.append(error_msg)
-        
-        # If all methods fail, return error with available languages if possible
-        try:
-            languages = get_available_transcript_languages(video_id)
-            if languages:
-                language_options = ", ".join([f"{lang['language_code']} ({lang['language']})" for lang in languages])
-                logger.error(f"All transcript methods failed. Available languages: {language_options}")
+            # Try to get available languages for better error message
+            try:
+                transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+                available_language_codes = []
+                
+                for t in transcript_list:
+                    if t.is_generated:
+                        available_language_codes.append(f"{t.language_code} (auto-generated)")
+                    else:
+                        available_language_codes.append(t.language_code)
+                
+                language_options = ", ".join(available_language_codes)
                 return Response({
                     "error": f"YouTube transcript extraction failed. Available languages: {language_options}",
                     "suggestion": "You may need to specify one of these languages in your request."
                 }, status=400)
-            else:
-                # If we can't even get language list
-                combined_errors = " | ".join(error_messages) if error_messages else "Unknown error"
-                logger.error(f"All transcript methods failed: {combined_errors}")
-                return Response({
-                    "error": "YouTube transcript extraction failed using all available methods.",
-                    "detail": combined_errors,
-                    "suggestion": "This video might not have transcripts available or they might be disabled."
-                }, status=400)
-        except Exception:
-            # If we can't even get language list
-            combined_errors = " | ".join(error_messages) if error_messages else "Unknown error"
-            logger.error(f"All transcript methods failed: {combined_errors}")
-            return Response({
-                "error": "YouTube transcript extraction failed using all available methods.",
-                "detail": combined_errors,
-                "suggestion": "This video might not have transcripts available or they might be disabled."
-            }, status=400)
+            except:
+                return Response({"error": f"YouTube transcript extraction failed: {str(e)}"}, status=500)
     
     # 📂 Process file if provided
     if file:
