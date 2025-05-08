@@ -121,7 +121,7 @@ def upload_text(request):
 def chat(request):
     """
     Enhanced endpoint for chatting with the initialized chatbot.
-    Improved error handling and message preprocessing.
+    Improved error handling, message preprocessing, and rate limit handling.
     """
     if request.method != 'POST':
         return JsonResponse({'success': False, 'error': 'Only POST method is allowed'}, status=405)
@@ -153,13 +153,22 @@ def chat(request):
                     'error': 'Message too long. Maximum length is 5000 characters.'
                 }, status=413)
         
-        # Generate a response
+        # Generate a response - now with improved rate limit handling
         response = chatbot.generate_response(message)
         
-        # Return the response with appropriate content type
+        # Check if we have a rate limit fallback response
+        is_fallback = any(response == fb for lang in chatbot.fallback_responses for fb in chatbot.fallback_responses[lang])
+        
+        # Return the response with appropriate content type and status
         return JsonResponse(
-            {'success': True, 'response': response, 'language': chatbot.detect_language(message)}, 
-            json_dumps_params={'ensure_ascii': False}
+            {
+                'success': True, 
+                'response': response, 
+                'language': chatbot.detect_language(message),
+                'is_fallback': is_fallback  # Add flag to inform the frontend about fallback responses
+            }, 
+            json_dumps_params={'ensure_ascii': False},
+            status=200 if not is_fallback else 429  # Use 429 status for rate limit responses
         )
         
     except Exception as e:
@@ -229,18 +238,37 @@ def reset(request):
 @csrf_exempt
 def status(request):
     """
-    New endpoint to check chatbot status and loaded content.
+    Enhanced endpoint to check chatbot status, loaded content, and API health.
     """
     if request.method != 'GET':
         return JsonResponse({'success': False, 'error': 'Only GET method is allowed'}, status=405)
         
     try:
+        # Test API connectivity with a minimal request
+        api_status = "healthy"
+        api_message = "API connection is working"
+        
+        try:
+            # Simple test to check if API is responsive
+            test_response = chatbot.fallback_model.generate_content(
+                "Say 'OK' in one word.", 
+                generation_config={"max_output_tokens": 1}
+            )
+            if not test_response or not test_response.text:
+                api_status = "degraded"
+                api_message = "API connection established but response quality may be affected"
+        except Exception as api_error:
+            api_status = "error"
+            api_message = f"API connection issue: {str(api_error)[:100]}"
+        
         # Get basic status information
         status_info = {
             'initialized': chatbot.is_initialized,
             'knowledge_chunks': len(chatbot.knowledge_base),
             'conversation_history': len(chatbot.chat_history),
-            'ready': True
+            'ready': True,
+            'api_status': api_status,
+            'api_message': api_message
         }
         
         # Try to detect language preference
