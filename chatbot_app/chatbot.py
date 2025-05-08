@@ -1,5 +1,7 @@
 import os
 import re
+import time
+import random
 from typing import List, Optional, Dict, Any
 from langchain.text_splitter import CharacterTextSplitter
 import google.generativeai as genai
@@ -19,14 +21,37 @@ class GymChatbot:
         self.knowledge_base = []  # Store text chunks in memory
         self.chat_history = []  # Store recent conversation history
         self.max_history_entries = 10
+        self.api_retries = 2  # Number of retries for API calls
+        self.retry_delay = 3  # Base delay between retries in seconds
+        self.fallback_responses = {
+            'en': [
+                "I'm processing your request. Please try again in a moment.",
+                "We're experiencing high demand. Please try again shortly.",
+                "Our AI service is currently busy. Your question will be answered soon.",
+                "Due to high traffic, responses are delayed. Please try again."
+            ],
+            'ar': [
+                "أنا أعالج طلبك. يرجى المحاولة مرة أخرى بعد لحظة.",
+                "نحن نواجه طلبًا مرتفعًا. يرجى المحاولة مرة أخرى قريبًا.",
+                "خدمة الذكاء الاصطناعي لدينا مشغولة حاليًا. سيتم الرد على سؤالك قريبًا.",
+                "بسبب حركة المرور العالية، تتأخر الاستجابات. يرجى المحاولة مرة أخرى."
+            ]
+        }
 
     def setup_gemini_api(self):
         """
         Set up Google Gemini API configuration.
         """
         try:
-            genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-            self.model = genai.GenerativeModel(model_name="gemini-1.5-pro")
+            api_key = os.getenv("GEMINI_API_KEY")
+            if not api_key:
+                print("WARNING: GEMINI_API_KEY environment variable not found")
+                
+            genai.configure(api_key=api_key)
+            
+            # Try to use a more efficient model if the Pro version hits rate limits
+            self.primary_model = genai.GenerativeModel(model_name="gemini-2.0-flash")
+            self.fallback_model = genai.GenerativeModel(model_name="gemini-2.0-flash")
         except Exception as e:
             print(f"Error setting up Gemini API: {e}")
             raise
@@ -54,7 +79,19 @@ class GymChatbot:
                 chunk_overlap=self.chunk_overlap,
                 separator="\n"  # Use newlines as separators to respect Arabic text structure
             )
-            split_texts = text_splitter.split_text(text)
+            
+            # Handle the warning about chunk size we see in logs
+            # If text is too long, increase chunk size incrementally
+            try:
+                split_texts = text_splitter.split_text(text)
+            except Exception as chunk_error:
+                print(f"Error with default chunk size, trying larger: {chunk_error}")
+                text_splitter = CharacterTextSplitter(
+                    chunk_size=self.chunk_size * 2,  # Double the chunk size
+                    chunk_overlap=self.chunk_overlap,
+                    separator="\n"
+                )
+                split_texts = text_splitter.split_text(text)
             
             # Store chunks directly in memory
             self.knowledge_base = split_texts
@@ -189,7 +226,8 @@ class GymChatbot:
         else:
             # User-uploaded content mode
             # Join the knowledge base chunks, but limit total context size
-            max_context_length = 10000
+            # Reduce context size to help with rate limits
+            max_context_length = 6000  # Reduced from 10000
             context = ""
             for chunk in self.knowledge_base:
                 if len(context) + len(chunk) + 4 <= max_context_length:
@@ -240,10 +278,17 @@ class GymChatbot:
                 5. Answer clarity: Provide organized, direct answers, breaking information into bullet points or short paragraphs for easy reading.
                 """
 
+    def get_fallback_response(self, lang: str) -> str:
+        """
+        Return a random fallback response when the API is rate limited.
+        """
+        responses = self.fallback_responses.get(lang, self.fallback_responses['en'])
+        return random.choice(responses)
+
     def generate_response(self, query: str) -> str:
         """
-        Generate a response using Gemini with enhanced query preprocessing
-        and optimized prompts based on detected language.
+        Generate a response using Gemini with enhanced query preprocessing,
+        optimized prompts based on detected language, and rate limit handling.
         """
         try:
             # Preprocess the query to correct common errors and improve structure
@@ -273,7 +318,7 @@ class GymChatbot:
                 "temperature": 0.2,  # Lower temperature for more focused answers
                 "top_p": 0.95,       # Slightly narrowed sampling for more reliable outputs
                 "top_k": 40,         # Moderate top_k for balance between creativity and precision
-                "max_output_tokens": 1024,  # Ensure sufficient space for comprehensive answers
+                "max_output_tokens": 800,  # Reduced from 1024 to help with rate limits
             }
             
             # Add safety settings to ensure appropriate responses
@@ -296,18 +341,51 @@ class GymChatbot:
                 }
             ]
             
-            response = self.model.generate_content(
-                prompt,
-                generation_config=generation_config,
-                safety_settings=safety_settings
-            )
-            
-            answer = response.text.strip()
-            
-            # Add response to history
-            self.chat_history.append({"role": "assistant", "content": answer})
-            
-            return answer
+            # Try with retries and rate limit handling
+            for attempt in range(self.api_retries + 1):
+                try:
+                    # Try primary model first
+                    if attempt == 0:
+                        response = self.primary_model.generate_content(
+                            prompt,
+                            generation_config=generation_config,
+                            safety_settings=safety_settings
+                        )
+                    # On first retry, use fallback model
+                    else:
+                        response = self.fallback_model.generate_content(
+                            prompt,
+                            generation_config=generation_config,
+                            safety_settings=safety_settings
+                        )
+                    
+                    # If we got here, we have a successful response
+                    answer = response.text.strip()
+                    
+                    # Add response to history
+                    self.chat_history.append({"role": "assistant", "content": answer})
+                    
+                    return answer
+                    
+                except Exception as e:
+                    error_str = str(e)
+                    print(f"Attempt {attempt+1} failed: {error_str}")
+                    
+                    # Check for rate limit error
+                    if "429" in error_str and "quota" in error_str.lower():
+                        # If this was our last attempt, use fallback response
+                        if attempt == self.api_retries:
+                            fallback = self.get_fallback_response(lang)
+                            self.chat_history.append({"role": "assistant", "content": fallback})
+                            return fallback
+                        
+                        # Otherwise wait and retry
+                        retry_delay = self.retry_delay * (2 ** attempt)  # Exponential backoff
+                        print(f"Rate limited. Retrying in {retry_delay} seconds...")
+                        time.sleep(retry_delay)
+                    else:
+                        # Non-rate limit error, raise it
+                        raise
         
         except Exception as e:
             print(f"Error generating response: {e}")
