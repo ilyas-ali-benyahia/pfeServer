@@ -1,35 +1,31 @@
 django==5.1.2
-djangorestframework
-gunicorn
-requests
-python-dotenv
-supabase
-PyPDF2
-python-docx
-python-pptx
-python-magic
-unstructured
-unstructured[docx]
-unstructured[pptx]
-langchain
-langchain-community
-langchain-google-genai
-langchain-unstructured
-cohere
-google-generativeai
-beautifulsoup4
-pillow
-pytesseract
-langdetect
-youtube-transcript-api
-whitenoise
-django-cors-headers
+djangorestframework>=3.14.0
+gunicorn>=21.0.0
+requests>=2.31.0
+python-dotenv>=1.0.0
+supabase>=2.0.0
+PyPDF2>=3.0.0
+python-docx>=1.1.0
+python-pptx>=0.6.21
+beautifulsoup4>=4.12.0
+pillow>=10.0.0
+pytesseract>=0.3.10
+langdetect>=1.0.9
+youtube-transcript-api>=0.6.0
+whitenoise>=6.5.0
+django-cors-headers>=4.0.0
 
+# AI packages
+google-generativeai>=0.3.0
+cohere>=4.0.0
 
+# Langchain - use specific versions to avoid conflicts
+langchain>=0.1.0
+langchain-community>=0.0.20
+langchain-google-genai>=0.0.6
 
-
-
-
+# Unstructured - without extras initially
+unstructured>=0.10.0
 
 
 
