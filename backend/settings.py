@@ -1,3 +1,20 @@
+Conversation ouverte. 1 message lu.
+
+Aller au contenu
+Utiliser Gmail avec un lecteur d'écran
+1 sur 2 185
+(aucun objet)
+Boîte de réception
+
+Merah Alaeddine
+Pièces jointes
+12:17 (il y a 0 minute)
+À moi
+
+Ce message semble être en anglais
+
+ Une pièce jointe
+  •  Analysé par Gmail
 """
 Django settings for myagent project.
 
@@ -87,13 +104,25 @@ WSGI_APPLICATION = 'backend.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.sqlite3',
+#         'NAME': BASE_DIR / 'db.sqlite3',
+#     }
+# }
+
+from decouple import config
+
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': config('DB_NAME', default='postgres'),
+        'USER': config('DB_USER', default='postgres'),
+        'PASSWORD': config('DB_PASSWORD'),
+        'HOST': config('DB_HOST'),
+        'PORT': config('DB_PORT', default='5432'),
     }
 }
-
 
 # Password validation
 # https://docs.djangoproject.com/en/5.1/ref/settings/#auth-password-validators
@@ -166,3 +195,5 @@ CORS_ALLOWED_ORIGINS = [
 import os
 
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+settings.py
+Affichage de settings.py en cours...
