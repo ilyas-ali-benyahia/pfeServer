@@ -26,6 +26,3 @@ langchain-google-genai>=0.0.6
 
 # Unstructured - without extras initially
 unstructured>=0.10.0
-
-
-
